@@ -13,6 +13,17 @@
 - Basis typecontrole
 - Automatische typeconversie
 
+## Status
+
+NTR is momenteel actief in development.
+De taal is functioneel, maar sommige features kunnen nog veranderen.
+De volgende update (v4) zal focussen of gebruikersvriendelijkheid, denk daarbij aan error logging en debuging features.
+
+Tested:
+- Linux (g++)
+- Windows: not tested yet
+
+
 ---
 
 # Hello World

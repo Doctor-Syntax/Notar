@@ -484,6 +484,11 @@ Je kunt de tic_tac_toe game uitproberen door het main programma te runnen, je ku
 Standaard staat debug mode uit, maar je kunt ook in main.cpp bij Run_program() true doorgeven om debug mode aan te zetten.
 
 ---
+# belangrijk
+
+De makefile is origineel op linux gemaakt, dus om het te compileren op window raad ik aan naar de makefile te kijken en eventueel aan te passen waar nodig.
+---
+
 
 # Samenvatting
 

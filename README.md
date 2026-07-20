@@ -3,15 +3,17 @@
 **Notar Language (NTR)** is een eenvoudige, dynamische programmeertaal met ondersteuning voor:
 
 - Dynamische variabelen
-- Constante en typevaste variabelen
+- Constante en typevaste variabelen foor modifiers:
+      - fix is constant
+      - pure is type vast
 - Functies
 - Arrays
-- Objects
+- Objects in js stijl
 - If-statements
 - While-loops
-- Referenties
+- Referenties voor functie calls
 - Basis typecontrole
-- Automatische typeconversie
+- Automatische typeconversie met ingebouwde functies
 
 ## Status
 
@@ -19,9 +21,9 @@ NTR is momenteel actief in development.
 De taal is functioneel, maar sommige features kunnen nog veranderen.
 De volgende update (v4) zal focussen of gebruikersvriendelijkheid, denk daarbij aan error logging en debuging features.
 
-Tested:
+gestest:
 - Linux (g++)
-- Windows: not tested yet
+- Windows: nog niet gestest
 
 
 ---
@@ -511,6 +513,7 @@ om vervolgens het programma te draaien doe je:
 
 ## Windows
 De makefile is origineel op linux gemaakt, dus om het te compileren op window raad ik aan naar de makefile te kijken en eventueel aan te passen waar nodig.
+
 ---
 
 

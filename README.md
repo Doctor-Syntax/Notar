@@ -472,7 +472,7 @@ var text = __cast("", 123);
 
 ```ntr
 func print(text){
-    __out(__cast("", text), "\n");
+    __out(text, "\n");
 }
 
 var player = {
@@ -495,8 +495,21 @@ Je kunt de tic_tac_toe game uitproberen door het main programma te runnen, je ku
 Standaard staat debug mode uit, maar je kunt ook in main.cpp bij Run_program() true doorgeven om debug mode aan te zetten.
 
 ---
-# belangrijk
+# Build
 
+## Linux
+
+```bash
+git clone https://github.com/Doctor-Syntax/Notar.git
+cd Notar
+make
+```
+om vervolgens het programma te draaien doe je: 
+```bash
+./main
+```
+
+## Windows
 De makefile is origineel op linux gemaakt, dus om het te compileren op window raad ik aan naar de makefile te kijken en eventueel aan te passen waar nodig.
 ---
 

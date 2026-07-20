@@ -4,8 +4,9 @@
 
 - Dynamische variabelen
 - Constante en typevaste variabelen foor modifiers:
-      - fix is constant
-      - pure is type vast
+  
+       : fix is constant      
+       : pure is type vast
 - Functies
 - Arrays
 - Objects in js stijl

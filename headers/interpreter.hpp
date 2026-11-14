@@ -3,6 +3,8 @@
 
 #include "program.hpp"
 #include "ast.hpp"
+#include "calc_err.hpp"
+#include "GUI_essentials.hpp"
 
 enum class ValueType{
     Number,
@@ -20,12 +22,14 @@ enum class ValueType{
 struct ArrayValue;
 struct BodyValue;
 struct FunctionValue;
-// struct Builtin_functionValue;
 struct Function_argument;
 
 struct Value{
     std::variant<double, bool, std::string, std::shared_ptr<ArrayValue>, std::shared_ptr<BodyValue>  /*std::shared_ptr<FunctionValue>, std::shared_ptr<Builtin_functionValue>*/> data;
     ValueType type;
+    Msg msg;
+    std::string error_msg = "";
+
     Value(std::variant<double, bool, std::string, std::shared_ptr<ArrayValue>,std::shared_ptr<BodyValue> /*std::shared_ptr<FunctionValue>, std::shared_ptr<Builtin_functionValue>*/> DATA, ValueType Type) : data(std::move(DATA)), type(Type){}
     
     static Value None();
@@ -103,6 +107,7 @@ struct Scope{
 class Operation_calculator{
 private:
     Value Err(std::string msg);
+    Msg msg;
 
 public:
     Value Add(const Value& left ,const Value& right);
@@ -125,6 +130,10 @@ private:
     Prgrm ast;
     std::shared_ptr<Scope> current_scope;
     Operation_calculator calc;
+    Debug_mode d_mode = Debug_mode::off;
+    bool terminate = false;
+    Window_context &window;
+
     enum class Flow{
         Normal,
         Continue,
@@ -148,6 +157,9 @@ private:
     FunctionValue* LookupFunc(Token name, Scope* scope);
     Value CalculateOperation(Value right, Value left, Token op);
     void PrintValue(Value v);
+    //void Runtime_error(const Token &token, const std::string &msg);
+
+
     AssignmentTarget ResolveAssignmentTarget(Expr* expression);
 
     Value Evaluate(Expr* expr);
@@ -167,8 +179,9 @@ private:
     
 
 public:
+    Msg msg;
     void Run();
-    Runtime_env(Prgrm Ast);
+    Runtime_env(Prgrm Ast, Window_context &window, Debug_mode d_mode = Debug_mode::off);
 
 };
 

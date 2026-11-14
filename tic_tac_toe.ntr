@@ -170,10 +170,12 @@ func main(){
 
         draw(game.board);
 
+        var pos = __cast(0,__in("Choose position 1-9: "));
 
-        print("Choose position 1-9:");
-
-        var pos = __cast(0,__in());
+        if(__failed(pos)){
+            __out("error, please enter a real number. [", pos, "] is not a number.\n");
+            pos = __cast(0,__in());
+        }
 
         pos = pos - 1;
 

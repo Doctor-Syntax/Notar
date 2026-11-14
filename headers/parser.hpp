@@ -4,21 +4,22 @@
 #include "ast.hpp"
 #include "program.hpp"
 #include "lexer.hpp"
+#include "calc_err.hpp"
 
 class Parser{
 private:
     std::string code;
-    std::vector<Token> tokens;
     std::string file_name;
     std::string file_extension;
     size_t i = 0;
     bool had_error = false;
-    bool debug_enabled = false;
+    Debug_mode d_mode = Debug_mode::off;
+    
 
     Token Advance();
     Token Peek();
     bool Match(std::string op);
-    void Error(const std::string& msg, const Token t);
+    //void Error(const std::string& msg, const Token t);
 
     //expressions
 
@@ -56,7 +57,9 @@ private:
 
 
 public:
-    Parser(std::string code, std::string file_name, std::string file_extension, bool debug_mode = false);
+    Parser(std::string code, std::string file_name, std::string file_extension, Debug_mode debug_mode = Debug_mode::off);
+    std::vector<Token> tokens;
+    Msg msg;
 
     Prgrm Parse();
 };

@@ -2,11 +2,11 @@
 
 
 
-Parser::Parser(std::string Code, std::string File_name, std::string File_extension, bool debug_mode){
+Parser::Parser(std::string Code, std::string File_name, std::string File_extension, Debug_mode debug_mode){
     code = Code;
     file_name = File_name;
     file_extension = File_extension;
-    debug_enabled = debug_mode;
+    d_mode = debug_mode;
 }
 
 Token Parser::Advance(){
@@ -21,7 +21,7 @@ Token Parser::Peek(){
     //std::cout << "Peek i=" << i << " size=" << tokens.size() << "\n";
 
     if(i >= tokens.size()){
-        std::cout << "OUT OF RANGE\n";
+        msg.Warning("tried to peek to next token, but index was out of bounds.");
         return Token(TokenType::EndOfFile, "EOF",0,0,0,0,file_name);
     }
 
@@ -39,18 +39,11 @@ bool Parser::Match(std::string op){
     return false;
 }
 
-void Parser::Error(const std::string& msg, const Token t){
-    if(had_error) return;
-
-    had_error = true;
-    std::cout<<"parsing err: "<< msg << "\n";
-    std::cout<<"  line: "<<t.s_l<<'\n';
-    std::cout<<"  collumn: "<<t.s_c<<'\n';
-}
-
 //expressions
 
 ExprPtr Parser::Primary(){
+    if(had_error) return nullptr;
+
     if(Peek().t == TokenType::EndOfFile) {
         return nullptr;
     }
@@ -69,7 +62,7 @@ ExprPtr Parser::Primary(){
             return group_expr;
         }
         else{
-            Error("expected a ')'", Peek());
+            msg.Error(Peek(),"expected a ')'.",had_error,"PARSER");
             return nullptr;
         }
     }
@@ -82,20 +75,20 @@ ExprPtr Parser::Primary(){
             std::string key = "";
             if(Peek().t == TokenType::Identifier) key = Advance().v;
             else{
-                Error("expected a key for identification in body creation.", Peek());
+                msg.Error(Peek(),"expected a key for identification in body creation.",had_error,"PARSER");
                 return nullptr;
             }
             
             if(Peek().t == TokenType::Colon) Advance();
             else{
-                Error("expected a colon (aka ':') for linking an object to a key in body creation.", Peek());
+                msg.Error(Peek(),"expected a colon (aka ':') for linking an object to a key in body creation.",had_error,"PARSER");
                 return nullptr;
             }
 
             auto key_value = Expression();
 
             if(!key_value){
-                Error("expected an expression to link to a key in body creation.", Peek());
+                msg.Error(Peek(),"expected an expression to link to a key in body creation.",had_error,"PARSER");
                 return nullptr;
             }
 
@@ -106,7 +99,7 @@ ExprPtr Parser::Primary(){
 
         if(Peek().t == TokenType::Rbrace) Advance();
         else{ 
-            Error("expected a '}'", Peek());
+            msg.Error(Peek(),"expected a '}'.",had_error,"PARSER");
             return nullptr;
         }
 
@@ -122,7 +115,7 @@ ExprPtr Parser::Primary(){
             auto expr = Expression();
 
             if(!expr){
-                Error("error in parsing, expected an expresion in array.", Peek());
+                msg.Error(Peek(),"expected an expresion in array.",had_error,"PARSER");
                 return nullptr;
             }
 
@@ -131,7 +124,7 @@ ExprPtr Parser::Primary(){
             if(Peek().t == TokenType::Comma_sperator) Advance();
             else if(Peek().t == TokenType::RBracket) break;
             else{
-                Error("parsing err, no expression or comma seperator in array creation.", Peek());
+                msg.Error(Peek(),"no expression or comma seperator in array creation.",had_error,"PARSER");
                 return nullptr;
             }
             
@@ -139,7 +132,7 @@ ExprPtr Parser::Primary(){
 
         if(Peek().t == TokenType::RBracket) Advance();
         else{ 
-            Error("expected a ']'", Peek());
+            msg.Error(Peek(),"expected a ']'.",had_error,"PARSER");
             return nullptr;
         }
 
@@ -150,21 +143,29 @@ ExprPtr Parser::Primary(){
 }
 
 ExprPtr Parser::Call(){
+    if(had_error) return nullptr;
+
     auto expr = Primary();
     while(Peek().t == TokenType::Lparen || Peek().t == TokenType::LBracket || Peek().t == TokenType::DotAccessifier){
         if(Peek().t == TokenType::Lparen){
             Advance();
             std::vector<ExprPtr> args = {};
+
             while(Peek().t != TokenType::Rparen && Peek().t != TokenType::EndOfFile){
-                args.emplace_back(Expression());
+                auto expr = Expression();
+                if(!expr) return nullptr;
+                args.emplace_back(std::move(expr));
+
                 if(Peek().t != TokenType::Comma_sperator && Peek().t != TokenType::Rparen){
-                    Error("expected a ',' for argument", Peek());
+                    msg.Error(Peek(), "expected a ',' for argument", had_error, "PARSER");
                     return nullptr;
                 }
                 if(Peek().t == TokenType::Comma_sperator) Advance();
             }
+
+
             if(Peek().t == TokenType::EndOfFile){
-                Error("expected a ')'", Peek());
+                msg.Error(Peek(), "expected a ')'", had_error, "PARSER");
                 return nullptr;
             }
             Advance();
@@ -184,7 +185,7 @@ ExprPtr Parser::Call(){
                 );
             }
             else{
-                Error("expected an identifier", Peek());
+                msg.Error(Peek(), "expected an identifier", had_error, "PARSER");
                 return nullptr;
             }
         }
@@ -192,8 +193,10 @@ ExprPtr Parser::Call(){
             Advance();
             std::vector<ExprPtr> args = {};
             ExprPtr index = Expression();
+            if(!index) return nullptr;
+
             if(Peek().t != TokenType::RBracket && Peek().t != TokenType::EndOfFile){
-                Error("expected a ']'", Peek());
+                msg.Error(Peek(), "expected a ']'", had_error, "PARSER");
                 return nullptr;
             }
             Advance();
@@ -208,18 +211,20 @@ ExprPtr Parser::Call(){
 }
 
 ExprPtr Parser::Unary(){
+    if(had_error) return nullptr;
+
     if(Peek().t == TokenType::Operator && (Peek().v == "!" || Peek().v == "-" || Peek().v == "+" || Peek().v == "&")){
         auto op = Advance();
         auto right = Unary();
 
         if(!right){
-            Error("missing right expr in Unary", Peek());
+            msg.Error(Peek(), "missing right expr in Unary", had_error, "PARSER");
             return nullptr;
         }
         
         auto expr = std::make_unique<UnaryExpr>(std::move(op), std::move(right));
         if(!expr){
-            Error("missing expr in Unary",Peek());
+            msg.Error(Peek(), "missing expr in Unary", had_error, "PARSER");
             return nullptr;
         }
         return expr;
@@ -228,10 +233,12 @@ ExprPtr Parser::Unary(){
 }
 
 ExprPtr Parser::Factor(){
+    if(had_error) return nullptr;
+
     auto expr = Unary();
 
     if(!expr){
-        Error("missing expr in Factor", Peek());
+        msg.Error(Peek(), "missing expr in Factor", had_error, "PARSER");
         return nullptr;
     }
 
@@ -241,7 +248,7 @@ ExprPtr Parser::Factor(){
         auto right = Unary();
 
         if(!right){
-            Error("missing right expr in Factor",Peek());
+            msg.Error(Peek(), "missing right expr in Factor", had_error, "PARSER");
             return nullptr;
         }
         
@@ -257,10 +264,12 @@ ExprPtr Parser::Factor(){
 }
 
 ExprPtr Parser::Term(){
+    if(had_error) return nullptr;
+
     auto expr = Factor();
 
     if(!expr){
-        Error("missing expr in Term",Peek());
+        msg.Error(Peek(), "missing expr in Term", had_error, "PARSER");
         return nullptr;
     }
 
@@ -269,7 +278,7 @@ ExprPtr Parser::Term(){
         auto right = Factor();
 
         if(!right){
-            Error("missing right expr in Term",Peek());
+            msg.Error(Peek(), "missing right expr in Term", had_error, "PARSER");
             return nullptr;
         }
 
@@ -284,10 +293,12 @@ ExprPtr Parser::Term(){
 }
 
 ExprPtr Parser::Comparision(){
+    if(had_error) return nullptr;
+
     auto expr = Term();
 
     if(!expr){
-        Error("missing expr in Comparison",Peek());
+        msg.Error(Peek(), "missing expr in Comparison", had_error, "PARSER");
         return nullptr;
     }
 
@@ -297,7 +308,7 @@ ExprPtr Parser::Comparision(){
             auto right = Term();
 
             if(!right){
-            Error("missing right expr in Comparison",Peek());
+            msg.Error(Peek(), "missing right expr in Comparison", had_error, "PARSER");
                 return nullptr;
             }
 
@@ -312,10 +323,12 @@ ExprPtr Parser::Comparision(){
 }
 
 ExprPtr Parser::Equality(){
+    if(had_error) return nullptr;
+
     auto expr = Comparision();
 
     if(!expr){
-        Error("missing expr in Equality",Peek());
+        msg.Error(Peek(), "missing expr in Equality", had_error, "PARSER");
         return nullptr;
     }
 
@@ -325,7 +338,7 @@ ExprPtr Parser::Equality(){
         auto right = Comparision();
 
         if(!right){
-            Error("missing right expr in Equality",Peek());
+            msg.Error(Peek(), "missing right expr in Equality", had_error, "PARSER");
             return nullptr;
         }
 
@@ -340,10 +353,12 @@ ExprPtr Parser::Equality(){
 }
 
 ExprPtr Parser::LOG_and(){
+    if(had_error) return nullptr;
+
     auto expr = Equality();
 
     if(!expr){
-        Error("missing expr in LOG_and",Peek());
+        msg.Error(Peek(), "missing expr in LOG_and", had_error, "PARSER");
         return nullptr;
     }
 
@@ -352,7 +367,7 @@ ExprPtr Parser::LOG_and(){
         auto right = Equality();
 
         if(!right){
-            Error("missing right expr in LOG_and",Peek());
+            msg.Error(Peek(), "missing right expr in LOG_and", had_error, "PARSER");
             return nullptr;
         }
 
@@ -367,10 +382,12 @@ ExprPtr Parser::LOG_and(){
 }
 
 ExprPtr Parser::LOG_or(){
+    if(had_error) return nullptr;
+
     auto expr = LOG_and();
 
     if(!expr){
-        Error("missing expr in LOG_or",Peek());
+        msg.Error(Peek(), "missing expr in LOG_or", had_error, "PARSER");
         return nullptr;
     }
 
@@ -379,7 +396,7 @@ ExprPtr Parser::LOG_or(){
         auto right = LOG_and();
 
         if(!right){
-            Error("missing right expr in LOG_or",Peek());
+            msg.Error(Peek(), "missing right expr in LOG_or", had_error, "PARSER");
             return nullptr;
         }
 
@@ -394,10 +411,13 @@ ExprPtr Parser::LOG_or(){
 }
 
 ExprPtr Parser::Assignment(){
+    if(had_error) return nullptr;
+
     auto expr = LOG_or();
 
     if(!expr){
-        Error("err, no expression for assignment.", Peek());
+        msg.Error(Peek(), "no expression for assignment.", had_error, "PARSER");
+
         return nullptr;
     }
 
@@ -414,7 +434,7 @@ ExprPtr Parser::Assignment(){
         ExprPtr target = std::move(expr);
         auto value = Expression();
         if(!value) {
-            Error("err, expected an expression voor the assignment.", Peek());
+            msg.Error(Peek(), "expected an expression voor the assignment.", had_error, "PARSER");
             return nullptr;
         }
 
@@ -425,7 +445,8 @@ ExprPtr Parser::Assignment(){
         return assignment;
     }
 
-    if(Peek().t == TokenType::Operator && (Peek().v == "+=" ||
+    if(Peek().t == TokenType::Operator && (
+        Peek().v == "+=" ||
         Peek().v == "-=" ||
         Peek().v == "*=" ||
         Peek().v == "/=")){
@@ -452,6 +473,8 @@ ExprPtr Parser::Assignment(){
 }
 
 ExprPtr Parser::Expression(){
+    if(had_error) return nullptr;
+
     auto expr = Assignment();
     return expr;
 }
@@ -460,15 +483,17 @@ ExprPtr Parser::Expression(){
 //statements
 
 StmtPtr Parser::Stmt_expr(){
+    if(had_error) return nullptr;
+
     auto expr = Expression();
 
     if(!expr){
-        Error("expected an expression", Peek());
+        msg.Error(Peek(), "expected an expression", had_error, "PARSER");
         return nullptr;
     }
 
     if(Peek().t != TokenType::Semicolon){
-        Error("expected a ';'", Peek());
+        msg.Error(Peek(), "expected a ';'", had_error, "PARSER");
         return nullptr;
     }
 
@@ -479,15 +504,20 @@ StmtPtr Parser::Stmt_expr(){
 }
 
 StmtPtr Parser::Block_stmt(){
+    if(had_error) return nullptr;
+
     std::vector<StmtPtr> statements;
     Advance();
 
     while(Peek().t != TokenType::Rbrace && Peek().t != TokenType::EndOfFile){
-        statements.emplace_back(Statement());
+        auto stmt = Statement();
+        if(!stmt) return nullptr;
+
+        statements.emplace_back(std::move(stmt));
     }
     if(Peek().t == TokenType::Rbrace) Advance();
     else{
-        Error("expected a '}'", Peek());
+        msg.Error(Peek(), "expected a '}'", had_error, "PARSER");
         return nullptr;
     }
     auto block = std::make_unique<BlockStmt>(std::move(statements));
@@ -496,6 +526,8 @@ StmtPtr Parser::Block_stmt(){
 }
 
 StmtPtr Parser::If_stmt(){
+    if(had_error) return nullptr;
+
     StmtPtr then_branch;
     StmtPtr else_branch;
     ExprPtr condition;
@@ -506,14 +538,14 @@ StmtPtr Parser::If_stmt(){
         condition = Expression();
         if(Peek().t == TokenType::Rparen) Advance();
         else{
-            Error("expected a ')'", Peek());
+            msg.Error(Peek(), "expected a ')'", had_error, "PARSER");
             return nullptr;
         }
     }
     
     then_branch = Statement();
     if(!then_branch){
-        Error("no then branch in if stmt", Peek());
+        msg.Error(Peek(), "no then branch in if stmt", had_error, "PARSER");
         then_branch = nullptr;
     }
     if(Peek().t == TokenType::Keyword && Peek().v == "elif"){
@@ -533,6 +565,8 @@ StmtPtr Parser::If_stmt(){
 }
 
 StmtPtr Parser::Var_stmt(){
+    if(had_error) return nullptr;
+
     Advance();
     Token name(TokenType::Identifier,"",0,0,0,0,file_name);
     ExprPtr initializer;
@@ -542,7 +576,7 @@ StmtPtr Parser::Var_stmt(){
         name = Advance();
     }
     else{
-        Error("expected an identifier",Peek());
+        msg.Error(Peek(), "expected an identifier", had_error, "PARSER");
         return nullptr;
     }
     if(Peek().t == TokenType::Colon){
@@ -558,12 +592,12 @@ StmtPtr Parser::Var_stmt(){
         initializer = Expression();
     }
     else{
-        Error("expected an assignment operator", Peek());
+        msg.Error(Peek(), "expected an assignment operator", had_error, "PARSER");
         return nullptr;
     }
 
     if(Peek().t != TokenType::Semicolon){
-        Error("expected a ';'", Peek());
+        msg.Error(Peek(), "expected a ';'", had_error, "PARSER");
         return nullptr;
     }
 
@@ -575,6 +609,8 @@ StmtPtr Parser::Var_stmt(){
 }
 
 StmtPtr Parser::While_stmt(){
+    if(had_error) return nullptr;
+
     Advance();
     ExprPtr condition;
     StmtPtr body;
@@ -586,17 +622,17 @@ StmtPtr Parser::While_stmt(){
             Advance();
         }
         else{
-            Error("expected a ')'", Peek());
+            msg.Error(Peek(), "expected a ')'", had_error, "PARSER");
         }
     }
     else{
-        Error("expected a '('",Peek());
+        msg.Error(Peek(), "expected a '('", had_error, "PARSER");
         return nullptr;
     }
 
     body = Statement();
     if(!body){
-        Error("no body in while loop", Peek());
+        msg.Error(Peek(), "no body in while loop", had_error, "PARSER");
         return nullptr;
     }
 
@@ -605,6 +641,8 @@ StmtPtr Parser::While_stmt(){
 }
 
 StmtPtr Parser::For_stmt(){
+    if(had_error) return nullptr;
+
     Advance();
     StmtPtr initializer;
     ExprPtr iteration_update;
@@ -618,35 +656,35 @@ StmtPtr Parser::For_stmt(){
             initializer = std::move(init);
         }
         else{
-            Error("iterator is not valid for a for loop", Peek());
+            msg.Error(Peek(), "iterator is not valid for a for loop", had_error, "PARSER");
             return nullptr;
         }
         if(!initializer){
-            Error("missing iterator declaration in for loop", Peek());
+            msg.Error(Peek(), "missing iterator declaration in for loop", had_error, "PARSER");
             return nullptr;
         }
 
 
         condition = Expression();
         if(!condition){
-            Error("missing a condition in for loop", Peek());
+            msg.Error(Peek(), "missing a condition in for loop", had_error, "PARSER");
             return nullptr;
         }
         if(Peek().t == TokenType::Semicolon) Advance();
         else{
-            Error("missing ';' in for loop declaration",Peek());
+            msg.Error(Peek(), "missing ';' in for loop declaration", had_error, "PARSER");
             return nullptr;
         }
 
         
         iteration_update = Expression();
         if(!iteration_update){
-            Error("missing update condition in for loop", Peek());
+            msg.Error(Peek(), "missing update condition in for loop", had_error, "PARSER");
             return nullptr;
         }
         
         if(Peek().t != TokenType::Rparen){
-            Error("expected a ')'", Peek());
+            msg.Error(Peek(), "expected a ')'", had_error, "PARSER");
             return nullptr;
         }
         else{
@@ -654,13 +692,13 @@ StmtPtr Parser::For_stmt(){
         }
     }
     else{
-        Error("expected a '('",Peek());
+        msg.Error(Peek(), "expected a '('", had_error, "PARSER");
         return nullptr;
     }
 
     body = Statement();
     if(!body){
-        Error("no body in for loop", Peek());
+        msg.Error(Peek(), "no body in for loop", had_error, "PARSER");
         return nullptr;
     }
 
@@ -669,16 +707,22 @@ StmtPtr Parser::For_stmt(){
 }
 
 StmtPtr Parser::Continue_stmt(){
+    if(had_error) return nullptr;
+
     Advance();
     return std::make_unique<Continuestmt>();
 }
 
 StmtPtr Parser::Break_stmt(){
+    if(had_error) return nullptr;
+
     Advance();
     return std::make_unique<BreakStmt>(); 
 }
 
 StmtPtr Parser::Func_stmt(){
+    if(had_error) return nullptr;
+
     Advance();
     Token name(TokenType::Identifier, "",0,0,0,0,file_name);
     std::vector<Token> args;
@@ -686,7 +730,7 @@ StmtPtr Parser::Func_stmt(){
         name = Advance();
     }
     else{
-        Error("expected an identifier for function.",Peek());
+        msg.Error(Peek(), "expected an identifier for function.", had_error, "PARSER");
         return nullptr;
     }
 
@@ -698,13 +742,13 @@ StmtPtr Parser::Func_stmt(){
         }
         if(Peek().t == TokenType::Rparen) Advance();
         else{
-            Error("expected a ')'", Peek());
+            msg.Error(Peek(), "expected a ')'", had_error, "PARSER");
             return nullptr;
         }
 
     }
     else{
-        Error("expected a '('", Peek());
+        msg.Error(Peek(), "expected a '('", had_error, "PARSER");
         return nullptr;
     }
 
@@ -719,6 +763,8 @@ StmtPtr Parser::Func_stmt(){
 }
 
 StmtPtr Parser::Return_stmt(){
+    if(had_error) return nullptr;
+
     Advance();
     ExprPtr value;
     if(Peek().t == TokenType::Semicolon){
@@ -737,12 +783,17 @@ StmtPtr Parser::Return_stmt(){
 }
 
 StmtPtr Parser::Empty_stmt(){
+    if(had_error) return nullptr;
+
     Advance();
     return std::make_unique<EmptyStmt>();
 }
 
 
 StmtPtr Parser::Statement(){
+    if(had_error) return nullptr;
+
+
     if(Peek().t == TokenType::Lbrace){
         return Block_stmt();
     }
@@ -779,39 +830,39 @@ StmtPtr Parser::Statement(){
 }
 
 Prgrm Parser::Parse(){
-    //std::cout<<"enter parsing\n";
+    if(Check_debug_enabled(d_mode, "parser")) msg.Message("[PARSER]: starting ast construction...\n",green);
 
     i=0;
-    Lexer l(code, file_name);
+    Lexer l(code, file_name, d_mode);
+    l.msg.Set_terminal_context(*msg.Get_terminal_context());
     tokens = l.Gen_tokens();
-    // for(size_t i = 0; i < tokens.size(); i++){
-    //    tokens[i].Print();
-    // }
 
     auto ast = Prgrm();
+    ast.msg.Set_terminal_context(*msg.Get_terminal_context());
 
     while(Peek().t != TokenType::EndOfFile){
-        ast.body.emplace_back(Statement());
-        //std::cout<<"parsing stmt...\n";
+        auto stmt = Statement();
+        if(!stmt) break;
+
+
+        ast.body.emplace_back(std::move(stmt));
         if(had_error) {
-            //std::cout<<"an error occurt while parsing...\n";
             break;
         }
 
     }
 
     if(ast.body.empty()){
-        std::cout<<"nullptr in parsing...\n";
+        msg.Message("[PARSER]: body of program is is empty after parsing.\n");
         ast.body.clear();
     }
 
     ast.code = code;
     ast.file_name = file_name;
     ast.file_extension = file_extension;
-    ast.debug_enabled = debug_enabled;
-
-    //ast.Print();
-    //std::cout<<"done parsing\n";
+    
+    if(Check_debug_enabled(d_mode, "ast")) ast.Print();
+    if(Check_debug_enabled(d_mode, "parser")) msg.Message("[PARSER]: succesfully made ast, starting program...\n",green);
 
     return ast;
 }

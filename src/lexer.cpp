@@ -1,40 +1,73 @@
 #include "../headers/lexer.hpp"
 
-
-std::unordered_set<std::string> keywords = {
-    "var", "if", "else", "elif", "func", "while", "for", "fix", "pure", "continue", "break", "return"
-};
-
-std::unordered_map<std::string, char> escape_characters = {
-    {"n", '\n'}, {"b", '\b'}, {"\\", '\\'}, {"\"", '"'}, {"t", '\t'}
-};
-
-std::unordered_set<std::string> operators = {
-    "=","!", "==", "!=", "-=", "+=", "/=", "*=", "*", "/", "+", "-", "**", ">", "<", "<=",
-    ">=", "&&", "||", "&"
-};
-
-std::unordered_map<std::string, TokenType> symbols = {
-    {"{", TokenType::Lbrace},
-    {"}", TokenType::Rbrace},
-    {"(", TokenType::Lparen},
-    {")", TokenType::Rparen},
-    {";", TokenType::Semicolon},
-    {",", TokenType::Comma_sperator},
-    {".", TokenType::DotAccessifier},
-    {"[", TokenType::LBracket},
-    {"]", TokenType::RBracket},
-    {":", TokenType::Colon}
-};
+const LexerConfig Notar_language{{"var", "if", "else", "elif", "func", "while", "for", "fix", "pure", "continue", "break", "return"},
+                           {"=","!", "==", "!=", "-=", "+=", "/=", "*=", "*", "/", "+", "-", "**", ">", "<", "<=",">=", "&&", "||", "&"},
+                           {{"n", '\n'}, {"b", '\b'}, {"\\", '\\'}, {"\"", '"'}, {"t", '\t'}}, 
+                            
+                           {{"{", TokenType::Lbrace},
+                             {"}", TokenType::Rbrace},
+                             {"(", TokenType::Lparen},
+                             {")", TokenType::Rparen},
+                             {";", TokenType::Semicolon},
+                             {",", TokenType::Comma_sperator},
+                             {".", TokenType::DotAccessifier},
+                             {"[", TokenType::LBracket},
+                             {"]", TokenType::RBracket},
+                             {":", TokenType::Colon}}};
 
 
-void Token::Print(){
-    std::cout<<"v: ["<<v<<"]  ";
-    std::cout<<"t: ["<<int(t)<<"]\n";
-    std::cout<<"s_l: ["<<s_l<<"]   ";
-    std::cout<<"s_c: ["<<s_c<<"]\n";
-    std::cout<<"e_l: ["<<e_l<<"]   ";
-    std::cout<<"e_c: ["<<e_c<<"]\n";
+std::string Token::Print_type(TokenType type){
+    switch(type){
+        case TokenType::Boolean:
+            return "Boolean";
+        case TokenType::Colon:
+            return "Colon";
+        case TokenType::Comma_sperator:
+            return "Comma_sperator";
+        case TokenType::DotAccessifier:
+            return "DotAccessifier";
+        case TokenType::EndOfFile:
+            return "EndOfFile";
+        case TokenType::Identifier:
+            return "Identifier";
+        case TokenType::Keyword:
+            return "Keyword";
+        case TokenType::Lbrace:
+            return "Lbrace";
+        case TokenType::LBracket:
+            return "LBracket";
+        case TokenType::Lparen:
+            return "Lparen";
+        case TokenType::Number:
+            return "Number";
+        case TokenType::Operator:
+            return "Operator";
+        case TokenType::Rbrace:
+            return "Rbrace";
+        case TokenType::RBracket:
+            return "RBracket";
+        case TokenType::Rparen:
+            return "Rparen";
+        case TokenType::Semicolon:
+            return "Semicolon";
+        case TokenType::String:
+            return "String";
+    }
+
+    return "UNKNOWN";
+}
+
+std::string Token::Print(){
+    std::ostringstream out;
+
+    out
+    << std::left
+    <<std::setw(20) << ("v: ["+ v + "]")
+    <<std::setw(20) << ("t: [" + Print_type(t) + "]")
+    <<"loc (" << s_l << ", " << s_c << ", " << e_l << ", " << e_c << ")"
+    << "\n";
+
+    return out.str();
 }
 
 void Lexer::Advance_char(){
@@ -53,12 +86,14 @@ char Lexer::Peek_next(std::string str, int current_index, int amount){
     size_t i = current_index+amount;
     if(i < str.size()) return str[i];
 
-    std::cout<<"Err during lexing, could not peek next char in string.\n";
+    msg.Warning("Err during lexing, could not peek next char in string.\n");
     return '\0';
 }
 
 std::vector<Token> Lexer::Gen_tokens(){
-    //std::cout << "NEW LEXER VERSION\n";
+    if(Check_debug_enabled(d_mode, "lexer")) msg.Message("[LEXER]: generating tokens...\n", green);
+
+
     tokens.clear();
     i=0;
     std::string str;
@@ -80,8 +115,8 @@ std::vector<Token> Lexer::Gen_tokens(){
             while(i < code.length() && code[i] != '"'){
                 if(code[i] == '\\'){
                     Advance_char();
-                    if(escape_characters.find(std::string(1, code[i])) != escape_characters.end()){
-                        str += escape_characters[std::string(1, code[i])];
+                    if(config.escape_characters.find(std::string(1, code[i])) != config.escape_characters.end()){
+                        str += config.escape_characters[std::string(1, code[i])];
                     }
                 }
                 else{
@@ -107,7 +142,7 @@ std::vector<Token> Lexer::Gen_tokens(){
             e_line = line;
             e_collumn = collumn;
             if(str == "true" || str == "false") tokens.emplace_back(Token(TokenType::Boolean, str,s_line,s_collumn,e_line, e_collumn,file_name));
-            else if(keywords.find(str) != keywords.end()) tokens.emplace_back(Token(TokenType::Keyword, str,s_line,s_collumn,e_line, e_collumn, file_name));
+            else if(config.keywords.find(str) != config.keywords.end()) tokens.emplace_back(Token(TokenType::Keyword, str,s_line,s_collumn,e_line, e_collumn, file_name));
             else tokens.emplace_back(Token(TokenType::Identifier, str,s_line,s_collumn,e_line, e_collumn, file_name));
             str = "";        
             continue;
@@ -135,25 +170,25 @@ std::vector<Token> Lexer::Gen_tokens(){
             dubble_str += Peek_next(code,i);
         }
         
-        if(operators.find(dubble_str) != operators.end()){
+        if(config.operators.find(dubble_str) != config.operators.end()){
             Advance_char();
             Advance_char();
             e_line = line;
             e_collumn = collumn;
             tokens.emplace_back(Token(TokenType::Operator, dubble_str, s_line, s_collumn, e_line, e_collumn,file_name));
         }
-        else if(operators.find(str) != operators.end()){
+        else if(config.operators.find(str) != config.operators.end()){
             Advance_char();
             e_line = line;
             e_collumn = collumn;
             tokens.emplace_back(Token(TokenType::Operator, str, s_line, s_collumn, e_line, e_collumn, file_name));
             
         }
-        else if(symbols.find(str) != symbols.end()){
+        else if(config.symbols.find(str) != config.symbols.end()){
             Advance_char();
             e_line = line;
             e_collumn = collumn;
-            tokens.emplace_back(Token(symbols.at(str), str, s_line, s_collumn, e_line, e_collumn, file_name));
+            tokens.emplace_back(Token(config.symbols.at(str), str, s_line, s_collumn, e_line, e_collumn, file_name));
             
         }
         else {
@@ -164,5 +199,11 @@ std::vector<Token> Lexer::Gen_tokens(){
         }
     }
     tokens.emplace_back(Token(TokenType::EndOfFile, "EOF", s_line, s_collumn, e_line, e_collumn, file_name));
+
+    if(Check_debug_enabled(d_mode, "lexer")){
+        for(size_t j = 0; j < tokens.size(); j++){
+            msg.Message("    " + tokens[j].Print());
+        }
+    }
     return tokens;
 }

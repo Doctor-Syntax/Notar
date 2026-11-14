@@ -2,9 +2,8 @@
 
 void Runtime_env::Declare_builtins(){
     builltin_functions["__out"] = [this](std::vector<Function_argument> args) -> Value{
-        if(args.empty()){
-            return Value::None();
-        }
+        if(args.empty()) return Value::None();
+        
         for(auto& val : args){
             if(val.Is_reference()) PrintValue(*val.val_location);
             else PrintValue(val.value);
@@ -13,19 +12,30 @@ void Runtime_env::Declare_builtins(){
     };
     builltin_functions["__in"] = [this](std::vector<Function_argument> args) -> Value{
         std::string input = "\0";
+        Text prompt = Text("");
 
-        if(args.empty()){
-            std::cin>>input;
-            return Value(input, ValueType::String);
+        while(true){
+            if(args.empty()) break;
+            if(!args[0].Is_reference() && args[0].Get().type == ValueType::String){
+                prompt.text += args[0].Get().AsString();
+                args.erase(args.begin());
+            }
+            else break;
         }
 
-        for(auto& arg : args){
-            std::cin>>input;
-            
-            arg.Get().data = input;
-            arg.Get().type = ValueType::String;
-            
-            input = "\0";
+        if(!args.empty()){
+            for(auto& arg : args){
+                input = window.Get_input(prompt, Text(""));
+
+                arg.Get().data = input;
+                arg.Get().type = ValueType::String;
+
+                input = "\0";
+            }
+        }   
+        else{
+            input = window.Get_input(prompt, Text(""));
+            return Value(input, ValueType::String);
         }
 
         return Value::None();
@@ -56,6 +66,17 @@ void Runtime_env::Declare_builtins(){
         
         return Value(std::make_shared<ArrayValue>(std::move(output_values)), ValueType::Array);
     };
+    builltin_functions["__failed"] = [this](std::vector<Function_argument> args) -> Value{
+        if(args.size() == 0) return Value::None();
+        bool failed = false;
+        for(size_t i = 0; i < args.size(); i++){
+            if(args[i].Get().type == ValueType::Err) failed = true;
+        }
+
+        return Value(failed,ValueType::Bool);
+    };
+
+
 }
 
 bool Function_argument::Is_reference(){
@@ -67,7 +88,7 @@ Value& Function_argument::Get(){
     return value;
 }
 
-Runtime_env::Runtime_env(Prgrm Ast) : ast(std::move(Ast)), current_scope(std::make_shared<Scope>()){
+Runtime_env::Runtime_env(Prgrm Ast, Window_context &Window, Debug_mode D_mode) : ast(std::move(Ast)), current_scope(std::make_shared<Scope>()), d_mode(D_mode), window(Window){
     current_scope->parent = nullptr;
     Declare_builtins();
 };
@@ -95,8 +116,8 @@ BodyValue& Value::AsObject(){
 }
 
 void Runtime_env::PrintValue(Value v){
-    if(v.type != ValueType::Err) std::cout<<v.To_string().AsString();
-    else std::cout<<"[Err]";
+    if(v.type != ValueType::Err) msg.Message(v.To_string().AsString(), {255,255,255,255});
+    else msg.Message("{error value}", red);
 }
 
 Value Value::None(){
@@ -107,12 +128,16 @@ Value Value::Error(){
 }
 
 Value Operation_calculator::Err(std::string msg){
-    std::cout<< msg <<"\n";
-    return Value(0.0,ValueType::Err);
+    Value v = Value::Error();
+    v.error_msg = msg;
+
+    return v;
 }
 Value Value::Err(std::string msg)const{
-    std::cout<< msg <<"\n";
-    return Value(0.0,ValueType::Err);
+    Value v = Value::Error();
+    v.error_msg = msg;
+
+    return v;
 }
 
 Value Value::To_bool()const{
@@ -206,7 +231,7 @@ Value Value::To_array()const{
 
     if(value_t == ValueType::Number) return Err("can not convert a number to an array.");
     else if(value_t == ValueType::Bool) return Err("can not convert a boolean to an array.");
-    else if(value_t == ValueType::String) return Err("can not convert a string to an array fro this version (v2).");
+    else if(value_t == ValueType::String) return Err("can not convert a string to an array fro this version (v5).");
     else return Err("error, can not convert an unsupported type or type value of 'none' or 'Err'.");
 }
 
@@ -324,6 +349,8 @@ Value Operation_calculator::Devide(const Value& left ,const Value& right){
     }
     else if(left_t == ValueType::String){
         if(right_t == ValueType::Number) {
+            if(left.To_number().type == ValueType::Err) return left.To_number();
+            
             Value result = Devide(Value(left.To_number().AsNumber(), ValueType::Number), right);
             std::ostringstream oss;
             oss << result.AsNumber();
@@ -401,12 +428,11 @@ Value Operation_calculator::BooleanOperation(const Value& left, const Value& rig
     auto right_t = right.type;
     auto opv = op.v;
 
+    if(CTo_bool(left).type == ValueType::Err || CTo_bool(right).type == ValueType::Err) return Err("error, couldn't convert value to boolean for comparison.");
+    if(left_t == ValueType::Err || right_t == ValueType::Err) return Err("error, can not do a boolean operation on a 'Err' value.");
+
     auto left_b = CTo_bool(left).AsBool();
     auto right_b = CTo_bool(right).AsBool();
-
-    if(CTo_bool(left).type == ValueType::Err || CTo_bool(right).type == ValueType::Err) return Err("error, couldn't convert value to boolean for comparison.");
-    if(left_t == ValueType::Err) return Err("error, can not do a boolean operation on a 'Err' value.");
-
 
     if(opv == "=="){
         if(left_t != right_t) return Value(false, ValueType::Bool);
@@ -458,7 +484,7 @@ Var* Runtime_env::LookupVar(Token name, Scope* scope){
 
     if(it != scope->variables.end()) return &it->second;
     if(!scope->parent){
-        std::cout << "Runtime error: variable not found\n";
+        msg.Error(name,"variable not found.",terminate);
         return nullptr;
     }
 
@@ -466,15 +492,10 @@ Var* Runtime_env::LookupVar(Token name, Scope* scope){
 }
 FunctionValue* Runtime_env::LookupFunc(Token name, Scope* scope){
     auto it = scope->functions.find(name.v);
-    // std::cout<< "in lookup -- " << current_scope << "\n";
-    // std::cout<<"in lookup -- ident: " << name.v << "\n";
-    // std::cout << "lookup for: " << name.v << '\n';
-
-    // for(auto &param : scope->functions) std::cout<<"list in lookup -- " << param.first<<"\n";
 
     if(it != scope->functions.end()) return &it->second;
     if(!scope->parent){
-        std::cout << "Runtime error: variable not found\n";
+        msg.Error(name,"function not found.", terminate);
         return nullptr;
     }
 
@@ -491,34 +512,34 @@ AssignmentTarget Runtime_env::ResolveAssignmentTarget(Expr* expr){
     }
     else if(auto var = dynamic_cast<IndexAccessExpr*>(expr)) {
         if(!var->object){
-            std::cout<<"error, the object to acces as an array doesn't exist.\n";
+            msg.Error("the object to acces as an array doesn't exist.", terminate);
             return target;
         }
 
         auto obj_val = GetValueLocationPtr(var->object.get());
         if(obj_val->type != ValueType::Array){
-            std::cout<<"error, object is not accessible as an array.\n";
+            msg.Error("object is not accessible as an array.", terminate);
             return target;
         }
 
         auto index = Evaluate(var->index.get());
         if(index.type != ValueType::Number){
-            std::cout<<"error, can not acces an array with a non number type index.\n";
+            msg.Error("can not acces an array with a non number type index.", terminate);
             return target;
         }
 
 
         double index_under_zero = ((index.AsNumber() < 0)? -1:index.AsNumber());
         if(index_under_zero == -1){
-            std::cout<<"error, can not acces an array with an index value les then zero.\n";
+            msg.Error("can not acces an array with an index value les then zero.", terminate);
             return target;
         }
         else if(index_under_zero >= obj_val->AsArray().elements.size()){
-            std::cout<<"error, can not acces an array with an index value that is bigger than the array.\n";
+            msg.Error("can not acces an array with an index value that is bigger than the array.", terminate);
             return target;
         }
         else if(std::floor(index_under_zero) != index_under_zero){
-            std::cout<<"error, can not acces an array with an index value that is not an integer.\n";
+            msg.Error("can not acces an array with an index value that is not an integer.", terminate);
             return target;
         }
 
@@ -530,13 +551,13 @@ AssignmentTarget Runtime_env::ResolveAssignmentTarget(Expr* expr){
     }
     else if(auto var = dynamic_cast<PropertyAccessExpr*>(expr)){
         if(!var->object){
-            std::cout<<"error, the body to access as an object does not exist.\n";
+            msg.Error(var->accessifier,"the body to access as an object does not exist.",terminate);
             return target;
         }
 
         auto object_val = GetValueLocationPtr(var->object.get());
         if(object_val->type != ValueType::Object){
-            std::cout<<"error, body is not accessible as an object.\n";
+            msg.Error(var->accessifier,"body is not accessible as an object.",terminate);
             return target;
         }
 
@@ -548,7 +569,7 @@ AssignmentTarget Runtime_env::ResolveAssignmentTarget(Expr* expr){
             return target;
         }
         else{
-            std::cout<<"error, the accesssifier [" + var->accessifier.v + "] to an object does not exist.\n";
+            msg.Error(var->accessifier,"the accesssifier [" + var->accessifier.v + "] to an object does not exist.", terminate);
             return target;
         }
 
@@ -564,7 +585,8 @@ Value Runtime_env::CalculateOperation(Value left, Value right, Token op){
     else if(op.v == "**") return calc.Power(left,right);
     else if(op.v == "==" || op.v == "!=" || op.v == ">" || op.v == "<" || op.v == "&&" || op.v == "||" ||
             op.v == ">=" || op.v == "<=") return calc.BooleanOperation(left,right,op);
-    std::cout<<"err, unhandled operation in operation calculation.\n";
+
+    msg.Error(op,"unseported operation.", terminate);
     return Value(0.0, ValueType::Err);
 }
 
@@ -578,53 +600,66 @@ Value Runtime_env::Evaluate(Expr* expr){
         if(LookupVar(var_expr->name, current_scope.get())){
             return Value(LookupVar(var_expr->name, current_scope.get())->value.data, LookupVar(var_expr->name, current_scope.get())->value.type);
         }
-        std::cout << "Undefined variable: " << var_expr->name.v << "\n";
-        return Value(0.0,ValueType::Err); 
+        return Value::Error(); 
     }
     else if(auto bin_expr = dynamic_cast<BinaryExpr*>(expr)){
         auto left = Evaluate(bin_expr->left.get());
         auto right = Evaluate(bin_expr->right.get());
         Value result = CalculateOperation(left, right, bin_expr->op);
+        if(result.type == ValueType::Err) {
+            msg.Error(bin_expr->op, result.error_msg, terminate);
+            return Value::Error();
+        }
         return result;
     }
     else if(auto group_expr = dynamic_cast<GroupingExpr*>(expr)){
         Value value = Evaluate(group_expr->expression.get());
+        if(value.type == ValueType::Err){
+            msg.Error(value.error_msg, terminate);
+            return Value::Error();
+        }
         return value;
     }
     else if(auto unary_expr = dynamic_cast<UnaryExpr*>(expr)){
         auto right_val = Evaluate(unary_expr->right.get());
         Value result = calc.UnaryOperation(right_val, unary_expr->op);
+        if(result.type == ValueType::Err){
+            msg.Error(unary_expr->op,result.error_msg,terminate);
+            return Value::Error();
+        }
+
         return result;
     }
     else if(auto assignment_expr = dynamic_cast<AssignmentExpr*>(expr)){
         auto variable = ResolveAssignmentTarget(assignment_expr->target_variable.get());
 
         if(!assignment_expr->value){
-            std::cout<<"err, right side for assignment doesn't exist.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error("right side for assignment doesn't exist.", terminate);
+            return Value::Error();
         }
 
         auto assignment_value = Evaluate(assignment_expr->value.get());
 
-        if(assignment_value.type == ValueType::Err){
-            std::cout<<"err, the assignment expr evaluated to Err.\n";
-            return Value(0.0, ValueType::Err);
-        }
+        // if(assignment_value.type == ValueType::Err){
+        //     msg.Error("assignment value is of error type.", terminate);
+        //     return Value::Error();
+        // }
+        // taking this away beceause variables should be able to exist with error type;
         if(variable.kind == AssignmentTarget::Kind::Error){
-            std::cout<<"err, variables doesn't exist in this scope or parent scopes.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error("variables doesn't exist in this scope or parent scopes.", terminate);
+            return Value::Error();
         }
 
         if(variable.kind == AssignmentTarget::Kind::Variable){
             Var* var = variable.variable;
             if(var->modifier == VarModifier::fix){
-                std::cout<<"err, can not change a fixed variable.\n";
-                return Value(0.0, ValueType::Err);
+                msg.Error("can not change a fixed variable.", terminate);
+                return Value::Error();
             }
             else if(var->modifier == VarModifier::pure){
                 if(var->value.type != assignment_value.type){
-                    std::cout<<"err, can not change the type of a variable with modifier pure to another type.\n";
-                    return Value(0.0, ValueType::Err);
+                    msg.Error("can not change the type of a variable with modifier pure to another type.", terminate);
+                    return Value::Error();
                 }
                 var->value = assignment_value;
                 return Value(var->value.data, var->value.type);
@@ -646,7 +681,13 @@ Value Runtime_env::Evaluate(Expr* expr){
     else if(auto array_expr = dynamic_cast<ArrayExpr*>(expr)){
         std::vector<Value> elements = {};
         for(size_t i = 0; i < array_expr->elements.size(); i++){
-            elements.emplace_back(Evaluate(array_expr->elements[i].get()));
+            Value v = Evaluate(array_expr->elements[i].get());
+            if(v.type == ValueType::Err){
+                msg.Error("value in array was of error type", terminate);
+                return Value::Error();
+            }
+        
+            elements.emplace_back(v);
         }
 
         return Value(std::make_shared<ArrayValue>(std::move(elements)),ValueType::Array);
@@ -656,29 +697,27 @@ Value Runtime_env::Evaluate(Expr* expr){
         auto index = Evaluate(index_expr->index.get());
 
         if(index.type != ValueType::Number){
-            std::cout<<"error, can not acces an array or string with a non number value.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error("can not acces an array or string with a non number value.", terminate);
+            return Value::Error();
         }
 
         if(object.type != ValueType::Array){
-            std::cout<<"error, the object type of [";
-            PrintValue(object);
-            std::cout<<"] value is not accessible like an array.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error("the object type was not accessible like an array.", terminate);
+            return Value::Error();
         }
 
         double index_under_zero = ((index.AsNumber() < 0)? -1:index.AsNumber());
         if(index_under_zero == -1){
-            std::cout<<"error, can not acces an array with an index value les then zero.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error("can not acces an array with an index value les then zero.", terminate);
+            return Value::Error();
         }
         else if(index_under_zero >= object.AsArray().elements.size()){
-            std::cout<<"error, can not acces an array with an index value that is bigger than the array.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error("can not acces an array with an index value that is bigger than the array.", terminate);
+            return Value::Error();
         }
         else if(std::floor(index_under_zero) != index_under_zero){
-            std::cout<<"error, can not acces an array with an index value that is not an integer.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error("can not acces an array with an index value that is not an integer.", terminate);
+            return Value::Error();
         }
 
         size_t verified_index = index_under_zero;
@@ -689,8 +728,8 @@ Value Runtime_env::Evaluate(Expr* expr){
         auto object = Evaluate(property_expr->object.get());
         
         if(object.type != ValueType::Object){
-            std::cout<<"error, can not acces a non object-type value.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error(property_expr->accessifier, "can not acces a non object-type value.", terminate);
+            return Value::Error();
         }
 
         if(object.AsObject().elements.find(property_expr->accessifier.v) != object.AsObject().elements.end()){
@@ -698,10 +737,8 @@ Value Runtime_env::Evaluate(Expr* expr){
             return pair->second;
         }
         else{
-            std::cout<<"error, the accesssifier [" + property_expr->accessifier.v + "] for the object [";
-            PrintValue(object);
-            std::cout<<"] does not exist.\n";
-            return Value(0.0, ValueType::Err);
+            msg.Error(property_expr->accessifier, "the accesssifier [" + property_expr->accessifier.v + "] does not exist", terminate);
+            return Value::Error();
         }
     }
     else if(auto object_expr = dynamic_cast<BodyExpr*>(expr)){
@@ -718,16 +755,9 @@ Value Runtime_env::Evaluate(Expr* expr){
         auto identifier = dynamic_cast<VariableExpr*>(call_expr->callee.get());
 
         if(!identifier){
-            std::cout<<"can not call a function something elses than an identifier.\n";
+            msg.Error(identifier->name, "can not call a function something elses than an identifier.", terminate);
             return Value::Error();
         }
-
-        // std::cout<< current_scope << "\n";
-        // std::cout<<"ident: " << identifier->name.v << "\n";
-
-        // for(auto &param : current_scope->functions){
-        //     std::cout<< "list -- " <<param.first<<"\n";
-        // } func = LookupFunc(Token(TokenType::Identifier,identifier->name.v,0,0,0,0,ast.file_name), current_scope.get());
 
         auto builtin = builltin_functions.find(identifier->name.v);
         if(builtin != builltin_functions.end()) {
@@ -742,7 +772,7 @@ Value Runtime_env::Evaluate(Expr* expr){
                         else if(var_location.array_element) ARG.val_location = var_location.array_element;
                         else if(var_location.object_element) ARG.val_location = var_location.object_element;
                         else {
-                            std::cout<<"variable location does not exist, cannot pass by reference to function.\n";
+                            msg.Error(unary->op, "variable location does not exist, cannot pass by reference to function.", terminate);
                             return Value::Error(); 
                         }
 
@@ -759,7 +789,7 @@ Value Runtime_env::Evaluate(Expr* expr){
         }
         else if(auto func = LookupFunc(Token(TokenType::Identifier,identifier->name.v,0,0,0,0,ast.file_name), current_scope.get())){
             if(call_expr->args.size() != func->params.size()){
-                std::cout<<"err, not enough or to many arguments given for function call.\n";
+                msg.Error(func->name, "not enough or to many arguments given for function call.", terminate);
                 return Value::Error();
             }
 
@@ -775,7 +805,7 @@ Value Runtime_env::Evaluate(Expr* expr){
                         else if(var_location.array_element) ARG.val_location = var_location.array_element;
                         else if(var_location.object_element) ARG.val_location = var_location.object_element;
                         else {
-                            std::cout<<"variable location does not exist, cannot pass by reference to function.\n";
+                            msg.Error(func->name, "variable location does not exist, cannot pass by reference to function.", terminate);
                             return Value::Error(); 
                         }
 
@@ -801,39 +831,39 @@ Value Runtime_env::Evaluate(Expr* expr){
 
         }
         else{
-            std::cout<<"err, function doesn't exist.\n";
+            msg.Error(identifier->name, "function doesn't exist.", terminate);
             return Value::Error();
         }
         
     }
-    std::cout<<"err, unhandled expr in evaluation.\n";
+    msg.Error("unhandled expression in evaluation.", terminate);
     return Value::Error();
 }
 
 Value* Runtime_env::GetValueLocationPtr(Expr* expr){
-    if(auto literal_expr = dynamic_cast<LiteralExpr*>(expr)){
+    if(dynamic_cast<LiteralExpr*>(expr)){
         return nullptr;
     }
     else if(auto var_expr = dynamic_cast<VariableExpr*>(expr)){
         Var* variable = LookupVar(var_expr->name, current_scope.get());
 
         if(!variable){
-            std::cout<<"error, variable for location ptr doen't exist.\n";
+            msg.Error(var_expr->name,"variable for location ptr doen't exist.", terminate);
             return nullptr;
         }
 
         return &variable->value;
     }
-    else if(auto bin_expr = dynamic_cast<BinaryExpr*>(expr)){
+    else if(dynamic_cast<BinaryExpr*>(expr)){
         return nullptr;
     }
-    else if(auto group_expr = dynamic_cast<GroupingExpr*>(expr)){
+    else if(dynamic_cast<GroupingExpr*>(expr)){
         return nullptr;
     }
-    else if(auto unary_expr = dynamic_cast<UnaryExpr*>(expr)){
+    else if(dynamic_cast<UnaryExpr*>(expr)){
         return nullptr;
     }
-    else if(auto assignment_expr = dynamic_cast<AssignmentExpr*>(expr)){
+    else if(dynamic_cast<AssignmentExpr*>(expr)){
         return nullptr;
     }
     else if(auto array_expr = dynamic_cast<ArrayExpr*>(expr)){
@@ -912,12 +942,13 @@ Runtime_env::FlowStream Runtime_env::Exe_Vardeclaration_stmt(VarDeclarationStmt*
     if(vardeclaration_stmt->initializer.get()){
         right_expr = Evaluate(vardeclaration_stmt->initializer.get());
     }
-    if(right_expr.type == ValueType::Err){
-        std::cout<<"err, the right value for assignment was of error type.\n";
-        return {Flow::Normal, Value::None()};
-    }
+    // if(right_expr.type == ValueType::Err){
+    //     msg.Error(vardeclaration_stmt->name, "the right value for assignment was of error type.", terminate);
+    //     return {Flow::Normal, Value::None()};
+    // }
+    // taking this away beceause variables should be able to exist with error type;
     if(current_scope->variables.find(vardeclaration_stmt->name.v) != current_scope->variables.end()){
-        std::cout<<"err, variable already exists in scope, shadowing is not supported.\n";
+        msg.Warning(vardeclaration_stmt->name, "variable already exists in scope, shadowing is not supported.");
         return {Flow::Normal, Value::None()};
     }
 
@@ -945,9 +976,26 @@ Runtime_env::FlowStream Runtime_env::Exe_Block_stmt(BlockStmt* block_stmt){
 Runtime_env::FlowStream Runtime_env::Exe_If_stmt(IfStmt* if_stmt){
     //std::cout<<"enter if stmt\n";
 
-    auto condition = Evaluate(if_stmt->condition.get());
+    
+    Value cond = Evaluate(if_stmt->condition.get());
+    if(cond.type == ValueType::Err){
+        msg.Error(cond.error_msg, terminate);
+        FlowStream f;
+        f.f = Flow::Normal;
+        f.value = Value::None();
+        return f;
+    }
 
-    if(calc.CTo_bool(condition).AsBool()){
+    Value boolean_cond = calc.CTo_bool(cond);
+    if(boolean_cond.type == ValueType::Err){
+        msg.Error(boolean_cond.error_msg, terminate);
+        FlowStream f;
+        f.f = Flow::Normal;
+        f.value = Value::None();
+        return f;
+    }
+
+    if(boolean_cond.AsBool()){
         return Execute(if_stmt->then_branch.get());
     }
     else{
@@ -962,11 +1010,37 @@ Runtime_env::FlowStream Runtime_env::Exe_For_stmt(ForStmt* for_stmt){
     //std::cout<<"start for loop\n";
 
     Enter_scope();
-
+    FlowStream f;
     Execute(for_stmt->initializer.get());
 
     while(calc.CTo_bool(Evaluate(for_stmt->condition.get())).AsBool()){
-        FlowStream f = Execute(for_stmt->body.get());
+
+
+        Value condition = Evaluate(for_stmt->condition.get());
+
+        if(condition.type == ValueType::Err){
+            msg.Error(condition.error_msg, terminate);
+            Exit_scope();
+            f.f = Flow::Normal;
+            f.value = Value::None();
+            return f;
+        }
+
+        Value boolean_cond = calc.CTo_bool(condition);
+
+        if(boolean_cond.type == ValueType::Err){
+            msg.Error(boolean_cond.error_msg, terminate);
+            Exit_scope();
+            f.f = Flow::Normal;
+            f.value = Value::None();
+            return f;
+        }
+
+        if(!boolean_cond.AsBool()) break;
+
+
+
+        f = Execute(for_stmt->body.get());
         if(f.f == Flow::Return){
             Exit_scope();
             return f;
@@ -982,8 +1056,31 @@ Runtime_env::FlowStream Runtime_env::Exe_For_stmt(ForStmt* for_stmt){
 Runtime_env::FlowStream Runtime_env::Exe_While_stmt(WhileStmt* while_stmt){
     //std::cout<<"start while\n";
     Enter_scope();
-    while(calc.CTo_bool(Evaluate(while_stmt->condition.get())).AsBool()){
-        FlowStream f = Execute(while_stmt->body.get());
+    FlowStream f;
+    while(true){
+        Value condition = Evaluate(while_stmt->condition.get());
+
+        if(condition.type == ValueType::Err){
+            msg.Error(condition.error_msg, terminate);
+            Exit_scope();
+            f.f = Flow::Normal;
+            f.value = Value::None();
+            return f;
+        }
+
+        Value boolean_cond = calc.CTo_bool(condition);
+
+        if(boolean_cond.type == ValueType::Err){
+            msg.Error(boolean_cond.error_msg, terminate);
+            Exit_scope();
+            f.f = Flow::Normal;
+            f.value = Value::None();
+            return f;
+        }
+
+        if(!boolean_cond.AsBool()) break;
+
+        f = Execute(while_stmt->body.get());
         if(f.f == Flow::Break) break;
         else if(f.f == Flow::Continue) continue;
         else if(f.f == Flow::Return) {
@@ -1013,11 +1110,6 @@ Runtime_env::FlowStream Runtime_env::Exe_Func_stmt(FuncStmt* func_stmt){
 
     current_scope->functions.try_emplace(func_stmt->name.v, std::move(function));
 
-    // std::cout<<"scope after insert-- "<<current_scope<<"\n";
-
-    // for(auto &param : current_scope->functions) std::cout<<"list after insert-- "<<param.first<<"\n";
-    // std::cout<<"ident after insert-- "<<func_stmt->name.v<<"\n";
-
     
     return {Flow::Normal, Value::None()};
 };
@@ -1029,6 +1121,12 @@ Runtime_env::FlowStream Runtime_env::Exe_Return_stmt(ReturnStmt* return_stmt){
 
 
 Runtime_env::FlowStream Runtime_env::Execute(Stmt* statement){
+    if(terminate){
+        FlowStream f;
+        f.f = Flow::Return;
+        Value::Error();
+        return f;
+    }
     if(auto expr_stmt = dynamic_cast<ExpressionStmt*>(statement)) return Exe_Expr_stmt(expr_stmt);
     else if(auto vardec_stmt = dynamic_cast<VarDeclarationStmt*>(statement)) return Exe_Vardeclaration_stmt(vardec_stmt);
     else if(auto block_stmt = dynamic_cast<BlockStmt*>(statement)) return Exe_Block_stmt(block_stmt);
@@ -1043,11 +1141,16 @@ Runtime_env::FlowStream Runtime_env::Execute(Stmt* statement){
     return {Flow::Normal, Value::None()};
 }
 void Runtime_env::Run(){
-    std::cout<<"\nstart runtime.\n\n";
+    msg.Message("[RUNTIME]: start of program\n", green);
 
     for(size_t i = 0; i < ast.body.size(); i++){
+        if(terminate) {
+            msg.Message("[RUNTIME]: Terminating program...\n");
+            return;
+        }
+
         Execute(ast.body[i].get());
     }
-    std::cout<<"\nend runtime.\n";
+    msg.Message("\n\n[RUNTIME]: end of program\n", green);
 }
 

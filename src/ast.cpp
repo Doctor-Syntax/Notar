@@ -286,15 +286,9 @@ std::string ReturnStmt::Print(int indent)const{
 //Program
 
 void Prgrm::Print(){
-    // std::cout<<"program detais:\n";
-    // std::cout<<"  file name: " + file_name + "\n";
-    // std::cout<<"  file extension: " + file_extension + "\n";
-    // if(debug_enabled) std::cout<<"  code [debug]: " + code + "\n";
-
-
-    std::cout<<"--ast start--\n";
+    msg.Message("\n[AST]: syntax tree start ---\n",green);
     for(size_t i = 0; i < body.size(); i++){
-        std::cout<<body[i]->Print();
+        msg.Message(body[i]->Print(4));
     }
-    std::cout<<"--ast end--\n";
+    msg.Message("\n[AST]: syntax tree end ---\n", green);
 }

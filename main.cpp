@@ -1,9 +1,9 @@
 #include "headers/nta.hpp"
 
 int main(){
-    Program program("tic_tac_toe.ntr");
+    Window_context window(1200,800,"notar window");
 
-    program.Run_program();
+    window.Start();
     
     return 0;
 }

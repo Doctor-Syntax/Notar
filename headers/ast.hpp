@@ -3,6 +3,7 @@
 
 #include "program.hpp"
 #include "lexer.hpp"
+#include "calc_err.hpp"
 
 // root classes
 
@@ -198,7 +199,6 @@ struct BreakStmt : Stmt{
     std::string Print(int indent)const override;
 };
 
-
 struct FuncStmt : Stmt{
     Token name;
     std::vector<Token> params;
@@ -218,11 +218,11 @@ struct ReturnStmt : Stmt{
 //program
 
 struct Prgrm{
-    bool debug_enabled = false;
     std::vector<StmtPtr> body;
     std::string file_name;
     std::string file_extension;
     std::string code;
+    Msg msg;
     void Print();
 };
 

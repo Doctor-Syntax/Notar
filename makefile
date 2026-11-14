@@ -8,15 +8,20 @@ CXXFLAGS = -std=c++17 -Wall -Iheaders \
            -fno-omit-frame-pointer
 
 # Link flags
-LDFLAGS = -fsanitize=address
+LDFLAGS = -fsanitize=address \
+          -Ldependencies/raylib/build/raylib \
+          -lraylib \
+          -lGL -lm -lpthread -ldl -lrt -lX11
 
 # Mappen
 SRC_DIR = src
 OBJ_DIR = src/obj
 
 # Bestanden
-SRC = $(wildcard $(SRC_DIR)/*.cpp) main.cpp
-OBJ = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(notdir $(SRC)))
+SRC := $(shell find src -name "*.cpp")
+
+OBJ := $(patsubst src/%.cpp,$(OBJ_DIR)/%.o,$(SRC))
+OBJ += $(OBJ_DIR)/main.o
 
 # Output
 TARGET = main
@@ -28,9 +33,8 @@ all: $(TARGET)
 $(TARGET): $(OBJ)
 	$(CXX) $(OBJ) $(LDFLAGS) -o $(TARGET)
 
-# Compile rule
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
-	mkdir -p $(OBJ_DIR)
+$(OBJ_DIR)/%.o: src/%.cpp
+	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Special case voor main.cpp
@@ -40,4 +44,4 @@ $(OBJ_DIR)/main.o: main.cpp
 
 # Clean
 clean:
-	rm -f $(OBJ_DIR)/*.o $(TARGET)
+	rm -rf $(OBJ_DIR) $(TARGET)
